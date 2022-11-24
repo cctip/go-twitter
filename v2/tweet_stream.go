@@ -230,6 +230,7 @@ type TweetStream struct {
 	alive         bool
 	mutex         sync.RWMutex
 	RateLimit     *RateLimit
+	needReConnect bool
 }
 
 // StartTweetStream will start the tweet streaming
@@ -242,11 +243,16 @@ func StartTweetStream(stream io.ReadCloser) *TweetStream {
 		err:           make(chan error),
 		mutex:         sync.RWMutex{},
 		alive:         true,
+		needReConnect: false,
 	}
 
 	go ts.handle(stream)
 
 	return ts
+}
+
+func (ts *TweetStream) NeedReConnect() bool {
+	return ts.needReConnect
 }
 
 func (ts *TweetStream) heartbeat(beat bool) {
@@ -282,6 +288,15 @@ func (ts *TweetStream) handle(stream io.ReadCloser) {
 		}
 
 		if !scanner.Scan() {
+			if scanner.Err() != nil {
+				go ts.Close()
+				if err := stream.Close(); err != nil {
+					ts.err <- err
+				}
+				ts.err <- scanner.Err()
+				ts.needReConnect = true
+			}
+			time.Sleep(time.Millisecond * 200)
 			continue
 		}
 
